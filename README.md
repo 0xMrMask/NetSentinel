@@ -38,7 +38,7 @@ NetSentinel/
 ### 2. Clone the repository
 
 ```powershell
-git clone https://github.com/YOUR-USERNAME/NetSentinel.git
+git clone https://github.com/RudraPateL-003/NetSentinel.git
 cd NetSentinel
 ```
 
@@ -83,7 +83,7 @@ git init
 git add .
 git commit -m "Initial NetSentinel release"
 git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/NetSentinel.git
+git remote add origin https://github.com/RudraPateL-003/NetSentinel.git
 git push -u origin main
 ```
 
