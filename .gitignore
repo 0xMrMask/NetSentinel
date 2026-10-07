@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.pcap
+*.pcapng
+.env
+.DS_Store
+reports/
+captures/
+*.log
