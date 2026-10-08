@@ -78,16 +78,16 @@
 
     <section class="stats-grid">
         <article class="metric-card"><span>Packets</span><strong id="stPackets">0</strong><small>Total captured</small></article>
+        <article class="metric-card"><span>Packets/sec</span><strong id="stRate">0</strong><small>Live packet rate</small></article>
+        <article class="metric-card"><span>Bandwidth</span><strong id="stBandwidth">0 B/s</strong><small>Current throughput</small></article>
+        <article class="metric-card"><span>Active hosts</span><strong id="stHosts">0</strong><small>Unique devices seen</small></article>
         <article class="metric-card"><span>Sources</span><strong id="stSources">0</strong><small>Unique source IPs</small></article>
-        <article class="metric-card"><span>Destinations</span><strong id="stDest">0</strong><small>Unique destinations</small></article>
-        <article class="metric-card"><span>TCP</span><strong id="stTcp">0</strong><small>TCP packets</small></article>
-        <article class="metric-card"><span>UDP</span><strong id="stUdp">0</strong><small>UDP packets</small></article>
         <article class="metric-card alert-metric"><span>Alerts</span><strong id="stAlerts">0</strong><small>Detected signals</small></article>
     </section>
 
     <section class="visual-grid">
         <article class="panel">
-            <div class="panel-title"><h2>Traffic activity</h2><span class="mini-status"><i></i> Updates every 2s</span></div>
+            <div class="panel-title"><h2>Live Packet Rate</h2><span class="mini-status"><i></i> Updates every 1s</span></div>
             <div class="chart-wrap">
                 <svg id="trafficChart" viewBox="0 0 800 180" preserveAspectRatio="none" aria-label="Live packet activity chart">
                     <defs>
@@ -99,9 +99,9 @@
                     <path id="chartArea" fill="url(#chartFill)" d=""></path>
                     <path id="chartLine" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" d=""></path>
                 </svg>
-                <div class="chart-empty" id="chartEmpty">Start monitoring to see live packet activity</div>
+                <div class="chart-empty" id="chartEmpty">Start monitoring to see the live packet rate</div>
             </div>
-            <div class="chart-footer"><span>Packets captured so far</span><strong id="chartCurrent">0 packets</strong></div>
+            <div class="chart-footer"><span>Live packets/sec</span><strong id="chartCurrent">0 packets/sec</strong></div>
         </article>
 
         <article class="panel posture-panel">
@@ -130,6 +130,15 @@
             <div class="data-block"><h3>Top sources</h3><ul id="topSources" class="talkers"></ul></div>
             <div class="data-block"><h3>Top destinations</h3><ul id="topDestinations" class="talkers"></ul></div>
             <div class="data-block"><h3>Protocol distribution</h3><div id="protoDist" class="proto-dist"></div></div>
+            <div class="data-block devices-block">
+                <h3>Network devices</h3>
+                <div class="table-wrap devices-wrap">
+                    <table class="devices-table">
+                        <thead><tr><th>IP address</th><th>Packets</th><th>Bytes</th><th>Risk</th></tr></thead>
+                        <tbody id="deviceBody"><tr><td colspan="4" class="empty-row">Run an analysis to see devices</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
         <div class="data-block contribution-block">
             <h3>Score breakdown</h3>

@@ -1,6 +1,7 @@
 """
 NetSentinel — Main Server
-Flask web server with local API and Server-Sent Events (SSE) for live updates.
+Flask web server with a local API. Live updates use 1-second polling
+from the dashboard (no external services).
 Everything listens only on 127.0.0.1 (localhost).
 """
 
@@ -8,9 +9,11 @@ from datetime import datetime
 from typing import List
 from flask import Flask, request, jsonify, Response, send_from_directory
 from models import Packet, TrafficStats, InvestigationScore, Alert
-from detector import DetectionEngine, DEFAULT_THRESHOLDS
+from detector import DetectionEngine
 from capture import PacketCaptureEngine
 from parser import parse_csv
+from config import DETECTION_CONFIG, PACKET_BUFFER_SIZE, validate_config_update
+from collections import deque
 import os
 import threading
 import time
@@ -30,24 +33,14 @@ app = Flask(__name__,
 capture_engine = PacketCaptureEngine()
 detector = DetectionEngine()
 
-# Live monitoring state
-live_packets: List[Packet] = []
+# Live monitoring state — bounded buffer so memory cannot grow forever
+live_packets = deque(maxlen=PACKET_BUFFER_SIZE)
 live_lock = threading.Lock()
 live_stats = TrafficStats()
 live_alerts: List[Alert] = []
 
-# Thresholds (configurable)
-config = {
-    "packets_per_source": 50,
-    "unique_destinations": 10,
-    "unique_ports": 10,
-    "icmp_threshold": 30,
-    "dns_threshold": 30,
-    "repeated_communication": 40,
-    "syn_threshold": 30,
-    "traffic_spike_multiplier": 5,
-    "time_window": 30,
-}
+# Thresholds (configurable at runtime via /api/reload — validated in config.py)
+config = dict(DETECTION_CONFIG)
 
 # ============================================================
 # HELPER FUNCTIONS
@@ -101,18 +94,67 @@ def compute_stats(packets: List[Packet]) -> TrafficStats:
     stats.icmp_count = proto_counts.get("ICMP", 0)
     stats.arp_count = proto_counts.get("ARP", 0)
 
-    if packets:
-        stats.avg_packet_length = total_length / len(packets)
+    stats.avg_packet_length = total_length / len(packets)
 
-    stats.active_hosts = stats.unique_sources + stats.unique_destinations
-    stats.packets_per_second = len(packets) / max(1, stats.total_packets // 100)
+    # Active hosts: unique IPs across both directions (not the sum of both,
+    # which double-counts devices that both send and receive)
+    all_hosts = set(src_counts) | set(dst_counts)
+    all_hosts.discard("?")
+    stats.active_hosts = len(all_hosts)
+
+    # Rates come from actual packet timestamps, not from packet counts
+    stats.total_bytes = total_length
+    first_ts = packets[0].timestamp
+    last_ts = packets[-1].timestamp
+    duration = (last_ts - first_ts).total_seconds()
+    stats.duration_seconds = max(0.0, duration)
+    if duration > 0:
+        stats.packets_per_second = len(packets) / duration
+        stats.bytes_per_second = total_length / duration
 
     return stats
 
 
-def run_detection(packets: List[Packet], now: datetime) -> List[Alert]:
-    """Run detection rules on packets."""
+def build_devices(packets: List[Packet], alerts: List[Alert]) -> List[dict]:
+    """
+    Simple device intelligence: per-IP traffic totals with a risk badge
+    derived from the alerts that name that IP as the source.
+    """
+    suspicious = {a.source for a in alerts if a.severity == "High"}
+    watch = {a.source for a in alerts if a.severity == "Medium"}
+
+    devices = {}
+    for p in packets:
+        src = p.get_src_ip()
+        dst = p.get_dst_ip()
+        for ip in (src, dst):
+            if not ip or ip == "?":
+                continue
+            entry = devices.setdefault(ip, {"ip": ip, "packets": 0, "bytes": 0})
+            entry["packets"] += 1
+        if src and src != "?":
+            devices[src]["bytes"] += p.length
+
+    out = []
+    for ip, entry in devices.items():
+        if ip in suspicious:
+            risk = "suspicious"
+        elif ip in watch:
+            risk = "watch"
+        else:
+            risk = "normal"
+        out.append({**entry, "risk": risk})
+    out.sort(key=lambda d: d["bytes"], reverse=True)
+    return out[:20]
+
+
+def run_detection(packets: List[Packet], now: datetime, recent_only=False) -> List[Alert]:
+    """Run detection rules on packets.
+    recent_only=True evaluates just the current time window (live dashboard);
+    otherwise the whole capture is scanned window-by-window (analysis/reports)."""
     engine = DetectionEngine(thresholds=config, window_seconds=config["time_window"])
+    if recent_only:
+        return engine.detect_recent(packets, now)
     return engine.detect(packets, now)
 
 
@@ -133,7 +175,8 @@ def process_packet(packet: Packet, update_stats: bool = True):
             return
         _last_recompute = now_mono
         live_stats = compute_stats(live_packets)
-        live_alerts = run_detection(live_packets, datetime.now())
+        # Live alerts reflect the current detection window only
+        live_alerts = run_detection(live_packets, datetime.now(), recent_only=True)
 
 
 # ============================================================
@@ -189,14 +232,14 @@ def api_start():
         return jsonify({"error": error}), 500
 
     # Reset state
-    live_packets = []
+    live_packets = deque(maxlen=PACKET_BUFFER_SIZE)
     live_stats = TrafficStats()
     live_alerts = []
 
     # Start capture in a background thread
     def capture_loop():
         capture_engine.set_callback(lambda pkt: process_packet(pkt, update_stats=True))
-        capture_engine.start_capture(interface, packet_filter="ip")
+        capture_engine.start_capture(interface, packet_filter="ip or arp")
 
     thread = threading.Thread(target=capture_loop, daemon=True)
     thread.start()
@@ -245,6 +288,7 @@ def build_analysis(packets, filename, parsing_status="OK",
     Used by both live-capture analysis and CSV analysis."""
     stats = compute_stats(packets)
     now = datetime.now()
+    # Full analysis: window-by-window detection across the whole capture
     alerts = run_detection(packets, now)
 
     engine = DetectionEngine(thresholds=config, window_seconds=config["time_window"])
@@ -264,12 +308,18 @@ def build_analysis(packets, filename, parsing_status="OK",
         "warnings": warnings or [],
         "unique_sources": stats.unique_sources,
         "unique_destinations": stats.unique_destinations,
+        "active_hosts": stats.active_hosts,
+        "packets_per_second": round(stats.packets_per_second, 1),
+        "bytes_per_second": round(stats.bytes_per_second, 2),
+        "total_bytes": stats.total_bytes,
+        "duration_seconds": round(stats.duration_seconds, 1),
         "protocol_distribution": stats.protocol_counts,
         "top_sources": top_sources,
         "top_destinations": top_destinations,
         "avg_packet_length": stats.avg_packet_length,
         "most_active_source": stats.most_active_source,
         "most_contacted_destination": stats.most_contacted_destination,
+        "devices": build_devices(packets, alerts),
         "alerts": [a.to_dict() for a in alerts],
         "investigation_score": score.to_dict(),
     }
@@ -295,7 +345,7 @@ def api_clear_capture():
     """Clear captured packets, stats and alerts."""
     global live_packets, live_stats, live_alerts, _last_recompute
     with live_lock:
-        live_packets = []
+        live_packets = deque(maxlen=PACKET_BUFFER_SIZE)
         live_stats = TrafficStats()
         live_alerts = []
         _last_recompute = 0.0
@@ -348,11 +398,19 @@ def api_csv_analyze():
 
 @app.route("/api/reload", methods=["POST"])
 def api_reload_config():
-    """Reload configuration thresholds."""
+    """Reload configuration thresholds (validated — only known keys with
+    numeric values >= 1 are accepted)."""
     global config
     data = request.get_json(silent=True) or {}
-    config.update(data)
-    return jsonify({"status": "config reloaded", "config": config})
+    cleaned, error = validate_config_update(data)
+    if error:
+        return jsonify({"error": error}), 400
+    config.update(cleaned)
+    return jsonify({
+        "status": "config reloaded",
+        "config": config,
+        "updated": sorted(cleaned.keys()),
+    })
 
 
 @app.route("/api/config", methods=["GET"])

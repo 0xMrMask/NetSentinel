@@ -110,9 +110,14 @@ select{height:38px;width:100%;padding:0 12px;border:1px solid var(--line);border
 .empty-state p{font-size:14px;color:var(--soft);font-weight:600}.empty-state small{font-size:12px}
 .alert-item{border:1px solid var(--line);border-left:4px solid var(--yellow);background:var(--card2);border-radius:9px;padding:12px;margin-bottom:8px;cursor:pointer;transition:.15s}
 .alert-item:hover{border-color:var(--accent)}.alert-item.selected{box-shadow:0 0 0 2px var(--accent)}
-.alert-item.severity-high{border-left-color:var(--red)}.alert-item.severity-medium{border-left-color:var(--orange)}.alert-item.severity-low{border-left-color:var(--yellow)}
+.alert-item.severity-high{border-left-color:var(--red)}.alert-item.severity-medium{border-left-color:var(--orange)}.alert-item.severity-low{border-left-color:var(--yellow)}.alert-item.severity-critical{border-left-color:#b3172b}.alert-item.severity-informational{border-left-color:var(--muted)}
 .alert-rule{font-size:13px;font-weight:700}
 .sev{font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;background:color-mix(in srgb,var(--red) 15%,transparent);color:var(--red);margin-left:6px;text-transform:capitalize}
+.sev.sev-critical{background:color-mix(in srgb,var(--red) 30%,transparent);color:var(--red);border:1px solid var(--red)}
+.sev.sev-high{background:color-mix(in srgb,var(--red) 15%,transparent);color:var(--red)}
+.sev.sev-medium{background:color-mix(in srgb,var(--orange) 18%,transparent);color:var(--orange)}
+.sev.sev-low{background:color-mix(in srgb,var(--yellow) 22%,transparent);color:var(--yellow)}
+.sev.sev-informational{background:var(--track);color:var(--muted)}
 .alert-evidence{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.5}
 .detail-empty{font-size:13px;color:var(--muted);padding:34px 4px}
 .two-col #alertDetail{font-size:13px;line-height:1.7;color:var(--soft)}
@@ -127,7 +132,22 @@ select{height:38px;width:100%;padding:0 12px;border:1px solid var(--line);border
 .packets-panel td{padding:9px 12px;color:var(--soft);border-bottom:1px solid var(--line);font-family:Consolas,monospace}
 .packets-panel tbody tr:hover td{background:var(--card2)}.packets-panel td.proto{color:var(--accent-ink);font-weight:700}
 .empty-row{text-align:center!important;color:var(--muted)!important;padding:30px!important;font-family:inherit!important}
+
+/* Network devices table — always spans the full analysis grid row */
+.devices-block{margin-top:18px;grid-column:1/-1}
+.devices-wrap{max-height:400px}
+.devices-table{width:100%;border-collapse:collapse;font-size:12px}
+.devices-table th{text-align:left;padding:9px 12px;color:var(--muted);font-size:12px;font-weight:600;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card2)}
+.devices-table td{padding:8px 12px;color:var(--soft);border-bottom:1px solid var(--line);font-family:Consolas,monospace;white-space:nowrap}
+.devices-table tbody tr:hover td{background:var(--card2)}
+.risk{font-size:10px;font-weight:700;padding:2px 8px;border-radius:5px;text-transform:capitalize;font-family:inherit}
+.risk-normal{background:color-mix(in srgb,var(--green) 14%,transparent);color:var(--green)}
+.risk-watch{background:color-mix(in srgb,var(--yellow) 20%,transparent);color:var(--yellow)}
+.risk-suspicious{background:color-mix(in srgb,var(--red) 15%,transparent);color:var(--red)}
+
 .footer{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;padding:6px 2px 24px;flex-wrap:wrap;gap:8px}
 
 @media(max-width:1000px){.steps{grid-template-columns:1fr}.stats-grid{grid-template-columns:repeat(3,1fr)}.hero{flex-direction:column;align-items:flex-start}.analysis-grid{grid-template-columns:1fr 1fr}.analysis-grid .data-block:last-child{grid-column:1/-1}.visual-grid,.two-col{grid-template-columns:1fr}}
-@media(max-width:700px){.topbar-in{padding:10px 14px;gap:10px;flex-wrap:wrap}.nav{order:3;flex-basis:100%;overflow:auto}.status-pill{display:none}.main{padding:20px 14px}.hero h1{font-size:23px}.stats-grid{grid-template-columns:repeat(2,1fr)}.analysis-grid{grid-template-columns:1fr}.analysis-summary{flex-direction:column;align-items:flex-start}.live-card{width:100%}}
+@media(max-width:700px){.topbar-in{padding:10px 14px;gap:10px;flex-wrap:wrap}.nav{order:3;flex-basis:100%;overflow:auto}.status-pill{display:none}.main{padding:20px 14px}.hero h1{font-size:23px}.stats-grid{grid-template-columns:repeat(2,1fr)}.analysis-grid{grid-template-columns:1fr}.analysis-summary{flex-direction:column;align-items:flex-start}.live-card{width:100%}
+/* Responsive packet table: keep Source → Destination, Protocol, Length */
+.packets-panel th:nth-child(1),.packets-panel td:nth-child(1){display:none}}

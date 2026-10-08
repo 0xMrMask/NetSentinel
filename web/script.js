@@ -26,13 +26,34 @@ function setStatus(text, isError = false) {
     el.className = "status-pill" + (isError ? " error" : "");
 }
 
-function setCaptureUI(running, iface = "") {
+function setCaptureUI(running, iface = "", durationSec = 0) {
     const dot = document.getElementById("liveDot");
     const title = document.getElementById("captureTitle");
     const sub = document.getElementById("captureSub");
     dot.classList.toggle("on", running);
     title.textContent = running ? "Live monitoring active" : "Ready to monitor";
-    sub.textContent = running ? `Capturing on ${iface}` : "Select a network interface to begin";
+    sub.textContent = running
+        ? `Capturing on ${iface}` + (durationSec > 0 ? ` · ${formatDuration(durationSec)}` : "")
+        : "Select a network interface to begin";
+}
+
+function formatBytes(bytes) {
+    const b = Number(bytes) || 0;
+    if (b < 0) return "-" + formatBytes(-b);
+    if (b < 1024) return `${b} B`;
+    const units = ["KB", "MB", "GB", "TB"];
+    let i = -1;
+    let v = b;
+    do { v /= 1024; i++; } while (v >= 1024 && i < units.length - 1);
+    return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)} ${units[i]}`;
+}
+
+function formatDuration(sec) {
+    const s = Math.floor(Number(sec) || 0);
+    const h = String(Math.floor(s / 3600)).padStart(2, "0");
+    const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+    const ss = String(s % 60).padStart(2, "0");
+    return `${h}:${m}:${ss}`;
 }
 
 async function loadInterfaces() {
@@ -71,7 +92,7 @@ async function startCapture() {
         document.getElementById("stopBtn").disabled = false;
         setCaptureUI(true, iface);
         if (pollTimer) clearInterval(pollTimer);
-        pollTimer = setInterval(refreshData, 2000);
+        pollTimer = setInterval(refreshData, 1000);
         refreshData();
     } else {
         setStatus(result?.error || "Failed to start monitoring", true);
@@ -112,23 +133,25 @@ async function refreshData() {
             setCaptureUI(false);
             if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
         } else if (c.running) {
-            setStatus("Capturing • " + (c.packets_captured || 0) + " packets");
-            setCaptureUI(true, c.interface || document.getElementById("interfaceSelect").value);
+            setStatus("Capturing • " + (c.packets_captured || 0) + " packets • " + formatDuration(c.duration || 0));
+            setCaptureUI(true, c.interface || document.getElementById("interfaceSelect").value, c.duration || 0);
         }
     }
 
     const s = data.packets || {};
     const total = s.total_packets || 0;
+    const pps = Number(s.packets_per_second || 0);
     document.getElementById("stPackets").textContent = total;
+    document.getElementById("stRate").textContent = Math.round(pps);
+    document.getElementById("stBandwidth").textContent = formatBytes(s.bytes_per_second || 0) + "/s";
+    document.getElementById("stHosts").textContent = s.active_hosts || 0;
     document.getElementById("stSources").textContent = s.unique_sources || 0;
-    document.getElementById("stDest").textContent = s.unique_destinations || 0;
-    document.getElementById("stTcp").textContent = s.tcp_count || 0;
-    document.getElementById("stUdp").textContent = s.udp_count || 0;
 
     const alerts = data.alerts || [];
     renderAlerts(alerts);
     renderPackets(data.packets_list || []);
-    updateChart(total);
+    // Graph the real packet rate, not the cumulative packet count
+    updateChart(pps);
 }
 
 function updateChart(current) {
@@ -146,7 +169,7 @@ function updateChart(current) {
 
     document.getElementById("chartLine").setAttribute("d", "M " + points.join(" L "));
     document.getElementById("chartArea").setAttribute("d", `M ${pad},${svgH-pad} L ${points.join(" L ")} L ${svgW-pad},${svgH-pad} Z`);
-    document.getElementById("chartCurrent").textContent = `${Number(current).toLocaleString()} packets`;
+    document.getElementById("chartCurrent").textContent = `${Number(current).toFixed(1)} packets/sec`;
     document.getElementById("chartEmpty").style.display = current ? "none" : "grid";
 }
 
@@ -186,7 +209,7 @@ function renderAlerts(alerts) {
         div.className = "alert-item severity-" + severity;
         div.innerHTML =
             `<span class="alert-rule">${escapeHTML(a.rule_name)}</span>` +
-            `<span class="sev">${escapeHTML(a.severity)}</span>` +
+            `<span class="sev sev-${severity}">${escapeHTML(a.severity)}</span>` +
             `<div class="alert-evidence">${escapeHTML(a.evidence)}</div>`;
 
         div.onclick = () => {
@@ -204,8 +227,15 @@ function renderAlerts(alerts) {
 }
 
 function showAlertDetail(a) {
+    const sev = (a.severity || "medium").toLowerCase();
+    const when = String(a.timestamp || "").replace("T", " ").slice(0, 19);
     document.getElementById("alertDetail").innerHTML =
-        `<h4>${escapeHTML(a.rule_name)} <span class="sev">${escapeHTML(a.severity)}</span></h4>` +
+        `<h4>${escapeHTML(a.rule_name)} <span class="sev sev-${escapeHTML(sev)}">${escapeHTML(a.severity)}</span></h4>` +
+        `<div class="why"><b>Source:</b> ${escapeHTML(a.source || "?")}` +
+        (a.destination ? ` → <b>Target:</b> ${escapeHTML(a.destination)}` : "") + `</div>` +
+        `<div class="why"><b>Time:</b> ${escapeHTML(when)} · <b>Confidence:</b> ${Number(a.confidence || 0)}%</div>` +
+        (a.mitre_technique ? `<div class="why"><b>MITRE ATT&CK:</b> ${escapeHTML(a.mitre_technique)}</div>` : "") +
+        (a.windows_matched > 1 ? `<div class="why"><b>Matched in:</b> ${Number(a.windows_matched)} time windows</div>` : "") +
         `<div class="why"><b>Evidence:</b> ${escapeHTML(a.evidence)}</div>` +
         `<div class="why"><b>Why it matters:</b> ${escapeHTML(a.why_it_matters)}</div>` +
         (a.possible_benign_explanations?.length
@@ -261,7 +291,10 @@ function renderAnalysis(d) {
 
     document.getElementById("analysisMeta").innerHTML =
         `<b>${d.packets_loaded || 0}</b> packets analyzed • <b>${d.unique_sources || 0}</b> sources • ` +
-        `<b>${d.unique_destinations || 0}</b> destinations • <b>${(d.alerts || []).length}</b> alerts<br>` +
+        `<b>${d.unique_destinations || 0}</b> destinations • <b>${d.active_hosts || 0}</b> active hosts • ` +
+        `<b>${(d.alerts || []).length}</b> alerts` +
+        (d.packets_per_second ? ` • <b>${d.packets_per_second}</b> packets/sec` : "") +
+        (d.duration_seconds ? ` • <b>${formatDuration(d.duration_seconds)}</b> duration` : "") + "<br>" +
         (d.avg_packet_length ? `Average packet size: <b>${Math.round(d.avg_packet_length)}</b> bytes` : "") +
         (d.most_active_source ? `<br>Most active source: <b>${escapeHTML(d.most_active_source)}</b>` : "") +
         (d.most_contacted_destination ? ` • Top destination: <b>${escapeHTML(d.most_contacted_destination)}</b>` : "");
@@ -269,6 +302,7 @@ function renderAnalysis(d) {
     renderTalkers("topSources", d.top_sources || []);
     renderTalkers("topDestinations", d.top_destinations || []);
     renderProtocols(d.protocol_distribution || {});
+    renderDevices(d.devices || []);
     renderContributions(score.contributions || []);
     updatePosture(total);
 
@@ -312,7 +346,22 @@ function renderProtocols(dist) {
     el.innerHTML = entries.length ? entries.map(([proto,count]) => {
         const pct = Math.round((count / total) * 100);
         return `<div class="row"><div class="top"><span>${escapeHTML(proto)}</span><span>${count} (${pct}%)</span></div><div class="bar"><i style="width:${pct}%"></i></div></div>`;
-    }).join("") : '<div class="muted">No data</div>';
+    }).join(("")) : '<div class="muted">No data</div>';
+}
+
+function renderDevices(devices) {
+    const body = document.getElementById("deviceBody");
+    if (!body) return;
+    if (!devices || !devices.length) {
+        body.innerHTML = '<tr><td colspan="4" class="empty-row">No devices found</td></tr>';
+        return;
+    }
+    body.innerHTML = devices.map(dev =>
+        `<tr><td>${escapeHTML(dev.ip)}</td>` +
+        `<td>${Number(dev.packets || 0).toLocaleString()}</td>` +
+        `<td>${escapeHTML(formatBytes(dev.bytes || 0))}</td>` +
+        `<td><span class="risk risk-${escapeHTML(dev.risk || "normal")}">${escapeHTML(dev.risk || "normal")}</span></td></tr>`
+    ).join("");
 }
 
 function renderContributions(cons) {
@@ -367,13 +416,20 @@ async function downloadReport(format) {
     const d = lastAnalysis;
     const base = "netsentinel-report-" + reportStamp();
 
-    if (format === "json") {
-        const payload = { generated_at: new Date().toISOString(), ...d, alerts: reportAlerts(d) };
-        downloadBlob(base + ".json", JSON.stringify(payload, null, 2), "application/json");
-    } else if (format === "csv") {
-        downloadBlob(base + ".csv", buildAlertsCSV(d), "text/csv;charset=utf-8");
-    } else {
-        downloadBlob(base + ".html", await buildHTMLReport(d), "text/html;charset=utf-8");
+    try {
+        if (format === "json") {
+            const payload = { generated_at: new Date().toISOString(), ...d, alerts: reportAlerts(d) };
+            downloadBlob(base + ".json", JSON.stringify(payload, null, 2), "application/json");
+        } else if (format === "csv") {
+            downloadBlob(base + ".csv", buildAlertsCSV(d), "text/csv;charset=utf-8");
+        } else {
+            downloadBlob(base + ".html", await buildHTMLReport(d), "text/html;charset=utf-8");
+        }
+    } catch (err) {
+        // Never fail silently — surface the exact error in the status pill
+        console.error("Report export failed:", err);
+        setStatus("Report export failed: " + (err && err.message ? err.message : err), true);
+        return;
     }
     setStatus("Report downloaded (" + format.toUpperCase() + ")");
 }
@@ -385,9 +441,10 @@ function csvCell(v) {
 }
 
 function buildAlertsCSV(d) {
-    const head = ["Rule", "Severity", "Evidence", "Why it matters", "Possible benign explanations", "Suggested investigation"];
+    const head = ["Timestamp", "Rule", "Severity", "Source", "Destination", "Confidence (%)", "MITRE ATT&CK", "Evidence", "Why it matters", "Possible benign explanations", "Suggested investigation"];
     const rows = reportAlerts(d).map(a => [
-        a.rule_name, a.severity, a.evidence, a.why_it_matters,
+        a.timestamp, a.rule_name, a.severity, a.source, a.destination,
+        a.confidence, a.mitre_technique, a.evidence, a.why_it_matters,
         a.possible_benign_explanations, a.suggested_investigation
     ].map(csvCell).join(","));
     return "\ufeff" + [head.join(","), ...rows].join("\r\n");
@@ -431,7 +488,7 @@ async function buildHTMLReport(d) {
 
     const alertItems = alerts.length ? alerts.map((a, i) => {
         const sev = (a.severity || "medium").toLowerCase();
-        return `<div class="alert-item severity-${e(sev)}" data-i="${i}"><span class="alert-rule">${e(a.rule_name)}</span><span class="sev">${e(a.severity)}</span><div class="alert-evidence">${e(a.evidence)}</div></div>`;
+        return `<div class="alert-item severity-${e(sev)}" data-i="${i}"><span class="alert-rule">${e(a.rule_name)}</span><span class="sev sev-${e(sev)}">${e(a.severity)}</span><div class="alert-evidence">${e(a.evidence)}</div></div>`;
     }).join("") : '<div class="empty-state"><span>✓</span><p>No alerts were raised</p><small>Nothing in this traffic matched a detection rule.</small></div>';
 
     const pkts = (!d.filename && lastPackets.length) ? lastPackets.slice(-100).reverse() : [];
@@ -444,8 +501,19 @@ async function buildHTMLReport(d) {
         </table></div>
     </section>` : "";
 
+    const devicesSection = (d.devices && d.devices.length) ? `
+    <section class="panel">
+        <div class="panel-title"><h2>Network devices</h2><span class="mini-status">${d.devices.length} observed</span></div>
+        <div class="table-wrap devices-wrap"><table class="devices-table">
+            <thead><tr><th>IP address</th><th>Packets</th><th>Bytes</th><th>Risk</th></tr></thead>
+            <tbody>${d.devices.map(x => `<tr><td>${e(x.ip)}</td><td>${Number(x.packets || 0).toLocaleString()}</td><td>${e(formatBytes(x.bytes || 0))}</td><td><span class="risk risk-${e(x.risk || "normal")}">${e(x.risk || "normal")}</span></td></tr>`).join("")}</tbody>
+        </table></div>
+    </section>` : "";
+
     const metaHTML =
-        `<b>${e(d.packets_loaded || 0)}</b> packets analyzed • <b>${e(d.unique_sources || 0)}</b> sources • <b>${e(d.unique_destinations || 0)}</b> destinations • <b>${alerts.length}</b> alerts<br>` +
+        `<b>${e(d.packets_loaded || 0)}</b> packets analyzed • <b>${e(d.unique_sources || 0)}</b> sources • <b>${e(d.unique_destinations || 0)}</b> destinations • <b>${e(d.active_hosts || 0)}</b> active hosts • <b>${alerts.length}</b> alerts` +
+        (d.packets_per_second ? ` • <b>${e(d.packets_per_second)}</b> packets/sec` : "") +
+        (d.duration_seconds ? ` • <b>${e(formatDuration(d.duration_seconds))}</b> duration` : "") + "<br>" +
         (d.avg_packet_length ? `Average packet size: <b>${Math.round(d.avg_packet_length)}</b> bytes` : "") +
         (d.most_active_source ? `<br>Most active source: <b>${e(d.most_active_source)}</b>` : "") +
         (d.most_contacted_destination ? ` • Top destination: <b>${e(d.most_contacted_destination)}</b>` : "");
@@ -460,7 +528,10 @@ function show(i){
   var a=A[i]; if(!a) return;
   document.querySelectorAll('.alert-item').forEach(function(el){el.classList.toggle('selected',+el.dataset.i===i)});
   document.getElementById('alertDetail').innerHTML=
-    '<h4>'+esc(a.rule_name)+' <span class="sev">'+esc(a.severity)+'</span></h4>'+
+    '<h4>'+esc(a.rule_name)+' <span class="sev sev-'+esc(a.severity||'medium').toLowerCase()+'">'+esc(a.severity)+'</span></h4>'+
+    '<div class="why"><b>Source:</b> '+esc(a.source||'?')+(a.destination?' → <b>Target:</b> '+esc(a.destination):'')+'</div>'+
+    '<div class="why"><b>Time:</b> '+esc(String(a.timestamp||'').replace('T',' ').slice(0,19))+' · <b>Confidence:</b> '+Number(a.confidence||0)+'%</div>'+
+    (a.mitre_technique?'<div class="why"><b>MITRE ATT&amp;CK:</b> '+esc(a.mitre_technique)+'</div>':'')+
     '<div class="why"><b>Evidence:</b> '+esc(a.evidence)+'</div>'+
     '<div class="why"><b>Why it matters:</b> '+esc(a.why_it_matters)+'</div>'+
     (a.possible_benign_explanations&&a.possible_benign_explanations.length?'<h4>Possible benign causes</h4>'+ul(a.possible_benign_explanations):'')+
@@ -512,10 +583,10 @@ setT(document.documentElement.getAttribute('data-theme')||'light');
 
     <section class="stats-grid">
         <article class="metric-card"><span>Packets</span><strong>${e(d.packets_loaded || 0)}</strong><small>Analyzed</small></article>
+        <article class="metric-card"><span>Packets/sec</span><strong>${e(d.packets_per_second || 0)}</strong><small>Average rate</small></article>
+        <article class="metric-card"><span>Bandwidth</span><strong>${e(formatBytes(d.bytes_per_second || 0))}/s</strong><small>Average throughput</small></article>
+        <article class="metric-card"><span>Active hosts</span><strong>${e(d.active_hosts || 0)}</strong><small>Unique devices</small></article>
         <article class="metric-card"><span>Sources</span><strong>${e(d.unique_sources || 0)}</strong><small>Unique source IPs</small></article>
-        <article class="metric-card"><span>Destinations</span><strong>${e(d.unique_destinations || 0)}</strong><small>Unique destinations</small></article>
-        <article class="metric-card"><span>TCP</span><strong>${pc("TCP")}</strong><small>TCP packets</small></article>
-        <article class="metric-card"><span>UDP</span><strong>${pc("UDP")}</strong><small>UDP packets</small></article>
         <article class="metric-card alert-metric"><span>Alerts</span><strong>${alerts.length}</strong><small>Detected signals</small></article>
     </section>
 
@@ -556,6 +627,7 @@ setT(document.documentElement.getAttribute('data-theme')||'light');
             <div id="alertDetail" class="detail-empty">No alert selected.</div>
         </article>
     </section>
+    ${devicesSection}
     ${packetsSection}
     <footer class="footer"><span>NetSentinel · local network anomaly detection</span><span>Generated locally — data never left this machine</span></footer>
 </main>

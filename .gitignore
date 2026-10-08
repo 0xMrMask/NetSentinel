@@ -8,3 +8,10 @@ __pycache__/
 reports/
 captures/
 *.log
+
+# Local-only clutter (old UI versions and scratch copies - not shipped)
+frontend/
+frontend_backup/
+frontend_backup_v2/
+frontend_backup_v3/
+backend/detector_clean.py
