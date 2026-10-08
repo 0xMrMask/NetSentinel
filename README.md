@@ -1,3 +1,5 @@
+<img width="1293" height="670" alt="image" src="https://github.com/user-attachments/assets/4e671837-3ca9-4432-b24b-8784327a3aaa" />
+
 # NetSentinel
 
 **NetSentinel** is a local network monitoring and anomaly-detection tool built with Python Flask and a simple web dashboard.
