@@ -4,25 +4,29 @@
 
 **NetSentinel** is a local network monitoring and anomaly-detection tool built with Python Flask and a simple web dashboard.
 
-It captures local network traffic, analyzes packets, detects unusual patterns, and shows alerts and investigation scores. The dashboard can optionally be shared remotely through a **Cloudflare Tunnel (`cloudflared`)**.
+It captures live network traffic (or imports Wireshark CSV exports) and analyzes it inside real **time windows**, so the detection engine can tell "50 packets in 30 seconds" apart from "50 packets in 30 minutes". The explainable, rule-based engine raises alerts for port scans (with a SYN/ACK ratio check), host scanning, ARP spoofing, traffic spikes against a learned baseline, ICMP/DNS anomalies, and repeated communication — each with evidence, a confidence score, a MITRE ATT&CK mapping, and suggested investigation steps. The dashboard shows a live packet-rate chart, packets/sec, bandwidth, active hosts, and a network-device view with risk badges, and it exports HTML/JSON/CSV reports with an executive risk summary. The dashboard can optionally be shared remotely through a **Cloudflare Tunnel (`cloudflared`)**.
 
 ## Project Structure
 
 ```text
 NetSentinel/
 ├── backend/
-│   ├── main.py       # Main local server
+│   ├── main.py       # Main local server + API
+│   ├── config.py     # Detection thresholds & config validation
 │   ├── models.py     # Data models
-│   ├── capture.py    # Packet capture
-│   ├── detector.py   # Detection rules
+│   ├── capture.py    # Packet capture (Scapy + Npcap)
+│   ├── detector.py   # Time-window detection rules (9 rules)
 │   ├── parser.py     # CSV/Wireshark parser
-│   └── report.py     # Report generation
+│   ├── report.py     # HTML report generation
+│   ├── test_*.py     # Import, end-to-end, API & feature tests
+│   └── ...
 │
 ├── web/
 │   ├── index.html    # Dashboard
 │   ├── script.js     # Frontend logic
 │   └── styles.css    # Dashboard styling
 │
+├── samples/          # Sample capture for offline analysis
 ├── requirements.txt
 ├── .gitignore
 ├── LICENSE
@@ -130,6 +134,10 @@ Anyone with the link can see the dashboard. Use this for quick demos and testing
 
 - NetSentinel is designed for **local/educational network analysis**.
 - Live packet capture requires appropriate permissions and a working packet-capture driver such as Npcap on Windows.
+- Live dashboard alerts reflect the current detection window (default 30 s); run **Analyze capture** to scan the whole session window-by-window.
+- Detection thresholds can be tuned at runtime via `POST /api/reload` — only known keys with positive numeric values are accepted.
+- The live packet buffer is bounded (50,000 packets), so memory stays flat during long captures.
+- Tests: `python test_import.py`, `python test_end_to_end.py`, `python test_v2_features.py`, `python check_integration.py` (from `backend/`).
 - Generated reports are kept locally and are not committed to Git.
 - The server listens on `127.0.0.1:8000` by default.
 
