@@ -39,7 +39,7 @@ NetSentinel/
 ### 2. Clone the repository
 
 ```powershell
-git clone https://github.com/RudraPateL-003/NetSentinel.git
+git clone https://github.com/0xMrMask/NetSentinel.git
 cd NetSentinel
 ```
 
