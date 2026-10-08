@@ -1,4 +1,4 @@
-<img width="1293" height="670" alt="image" src="https://github.com/user-attachments/assets/4e671837-3ca9-4432-b24b-8784327a3aaa" />
+<img width="1295" height="672" alt="image" src="https://github.com/user-attachments/assets/aa563599-372f-4370-8f1c-b3383bfbfc0a" />
 
 # NetSentinel
 
